@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>色変換シミュレーション（大規模版）</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .results { margin-top: 20px; }
+        table { border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .controls { margin: 20px 0; }
+        button { padding: 8px 15px; margin-right: 10px; }
+        input { padding: 5px; width: 100px; }
+        pre { background: #f5f5f5; padding: 10px; overflow: auto; max-height: 300px; }
+        .progress { height: 20px; background-color: #f3f3f3; margin: 10px 0; }
+        .progress-bar { height: 100%; background-color: #4CAF50; width: 0%; }
+        .best-strategy { font-weight: bold; background-color: #e7f7e7; }
+    </style>
+</head>
+<body>
+    <h1>色変換シミュレーション（大規模版）</h1>
+    
+    <div class="controls">
+        <button id="runBtn">シミュレーション実行</button>
+        <label>試行回数: <input type="number" id="iterations" value="1000" min="100" max="10000"></label>
+        <label>青0の初期数: <input type="number" id="initialBlue" value="100" min="10" max="1000"></label>
+    </div>
+    
+    <div id="progress-container" style="display: none;">
+        <h3>シミュレーション進行中...</h3>
+        <div class="progress">
+            <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <div id="progress-text">0%</div>
+    </div>
+    
+    <div class="results">
+        <h2>結果</h2>
+        <div id="output"></div>
+        <h3>戦略効果の確率的分析</h3>
+        <div id="statistical"></div>
+        <h3>最も効率的な戦略の詳細</h3>
+        <div id="debug"></div>
+    </div>
+    
+    <script>
+        // 確率を計算するための理論的分析
+        function calculateTheoretical() {
+            const analysis = document.getElementById('statistical');
+            let html = '<p>色変換の理論的確率分析:</p>';
+            
+            // 青0から紫0,紫1が生成される確率
+            html += '<p>1. 青0から紫への変換:</p>';
+            html += '- 紫0が生成される確率: 70%<br>';
+            html += '- 紫1が生成される確率: 30%<br>';
+            
+            // 紫同士の組み合わせ確率
+            html += '<p>2. 紫同士の組み合わせで黄が生成される確率:</p>';
+            html += '- 紫0+紫0 → 黄0: 35%, 黄1: 15%<br>';
+            html += '- 紫0+紫1 → 黄0: 25%, 黄1: 25%<br>';
+            html += '- 紫0+紫2 → 黄1: 25%, 黄2: 25%<br>';
+            html += '- 紫1+紫1 → 黄1: 30%, 黄2: 20%<br>';
+            html += '- 紫1+紫2 → 黄1: 15%, 黄2: 35%<br>';
+            html += '- 紫2+紫2 → 黄2: 50%<br>';
+            
+            // 黄同士の組み合わせ確率
+            html += '<p>3. 黄同士の組み合わせで橙が生成される確率:</p>';
+            html += '- 黄0+黄0 → 橙0: 35%, 橙1: 15%<br>';
+            html += '- 黄0+黄1 → 橙0: 25%, 橙1: 25%<br>';
+            html += '- 黄0+黄2 → 橙1: 25%, 橙2: 25%<br>';
+            html += '- 黄1+黄1 → 橙1: 30%, 橙2: 20%<br>';
+           	html += '- 黄1+黄2 → 橙1: 15%, 橙2: 35%<br>';
+            html += '- 黄2+黄2 → 橙2: 50%<br>';
+            
+            // 橙同士の組み合わせ確率（新工程：赤への変換）
+            html += '<p>4. 橙同士の組み合わせで赤が生成される確率:</p>';
+            html += '- 橙0+橙0 → 橙0:56%, 赤0:14%, 橙1:24%, 赤1:6%<br>';
+            html += '- 橙0+橙1 → 橙0:40%, 赤0:10%, 橙1:40%, 赤1:10%<br>';
+            html += '- 橙0+橙2 → 橙1:40%, 赤1:10%, 橙2:40%, 赤2:10%<br>';
+            html += '- 橙1+橙1 → 橙1:48%, 赤1:12%, 橙2:32%, 赤2:8%<br>';
+            html += '- 橙1+橙2 → 橙1:24%, 赤1:6%, 橙2:56%, 赤2:14%<br>';
+            html += '- 橙2+橙2 → 橙2:80%, 赤2:20%<br>';
+            
+            // 赤2を生成するための最適戦略（前工程で黄から橙、橙から赤へ）
+            html += '<p>5. 赤2を効率的に生成するための理論的戦略:</p>';
+            html += '- まず黄2を多く生成することが重要（黄2同士で50%の確率で橙2が生成）<br>';
+            html += '- 次に橙2を赤2に変換するため、橙1+橙2または橙2+橙2の組み合わせが効果的<br>';
+            
+            analysis.innerHTML = html;
+        }
+        
+        // 青0 -> 紫0/紫1の変換関数
+        function blueToViolet() {
+            return Math.random() < 0.7 ? "紫0" : "紫1";
+        }
+        
+        // 紫同士の組み合わせによる変換
+        function combineViolet(color1, color2) {
+            const rand = Math.random() * 100; // 0-100の乱数
+            
+            // 紫0+紫0
+            if (color1 === "紫0" && color2 === "紫0") {
+                if (rand < 35) return "紫0";
+                if (rand < 70) return "黄0";
+                if (rand < 85) return "紫1";
+                return "黄1";
+            } 
+            // 紫0+紫1 または 紫1+紫0
+            else if ((color1 === "紫0" && color2 === "紫1") || (color1 === "紫1" && color2 === "紫0")) {
+                if (rand < 25) return "紫0";
+                if (rand < 50) return "黄0";
+                if (rand < 75) return "紫1";
+                return "黄1";
+            }
+            // 紫0+紫2 または 紫2+紫0
+            else if ((color1 === "紫0" && color2 === "紫2") || (color1 === "紫2" && color2 === "紫0")) {
+                if (rand < 25) return "紫1";
+                if (rand < 50) return "黄1";
+                if (rand < 75) return "紫2";
+                return "黄2";
+            }
+            // 紫1+紫1
+            else if (color1 === "紫1" && color2 === "紫1") {
+                if (rand < 30) return "紫1";
+                if (rand < 60) return "黄1";
+                if (rand < 80) return "紫2";
+                return "黄2";
+            }
+            // 紫1+紫2 または 紫2+紫1
+            else if ((color1 === "紫1" && color2 === "紫2") || (color1 === "紫2" && color2 === "紫1")) {
+                if (rand < 15) return "紫1";
+                if (rand < 30) return "黄1";
+                if (rand < 65) return "紫2";
+                return "黄2";
+            }
+            // 紫2+紫2
+            else if (color1 === "紫2" && color2 === "紫2") {
+                return rand < 50 ? "紫2" : "黄2";
+            }
+            
+            console.error("未定義の紫組み合わせ:", color1, color2);
+            return null;
+        }
+        
+        // 黄同士の組み合わせによる変換
+        function combineYellow(color1, color2) {
+            const rand = Math.random() * 100; // 0-100の乱数
+            
+            // 黄0+黄0
+            if (color1 === "黄0" && color2 === "黄0") {
+                if (rand < 35) return "黄0";
+                if (rand < 50) return "黄1";
+                if (rand < 85) return "橙0";
+                return "橙1";
+            } 
+            // 黄0+黄1 または 黄1+黄0
+            else if ((color1 === "黄0" && color2 === "黄1") || (color1 === "黄1" && color2 === "黄0")) {
+                if (rand < 25) return "黄0";
+                if (rand < 50) return "黄1";
+                if (rand < 75) return "橙0";
+                return "橙1";
+            }
+            // 黄0+黄2 または 黄2+黄0
+            else if ((color1 === "黄0" && color2 === "黄2") || (color1 === "黄2" && color2 === "黄0")) {
+                if (rand < 25) return "黄1";
+                if (rand < 50) return "黄2";
+                if (rand < 75) return "橙1";
+                return "橙2";
+            }
+            // 黄1+黄1
+            else if (color1 === "黄1" && color2 === "黄1") {
+                if (rand < 30) return "黄1";
+                if (rand < 50) return "黄2";
+                if (rand < 80) return "橙1";
+                return "橙2";
+            }
+            // 黄1+黄2 または 黄2+黄1
+            else if ((color1 === "黄1" && color2 === "黄2") || (color1 === "黄2" && color2 === "黄1")) {
+                if (rand < 15) return "黄1";
+                if (rand < 50) return "黄2";
+                if (rand < 65) return "橙1";
+                return "橙2";
+            }
+            // 黄2+黄2
+            else if (color1 === "黄2" && color2 === "黄2") {
+                return rand < 50 ? "黄2" : "橙2";
+            }
+            
+            console.error("未定義の黄組み合わせ:", color1, color2);
+            return null;
+        }
+        
+        // 橙同士の組み合わせによる変換（新工程：赤を目指す）
+        function combineOrange(color1, color2) {
+            const rand = Math.random() * 100; // 0-100の乱数
+            
+            // 橙0+橙0
+            if (color1 === "橙0" && color2 === "橙0") {
+                if (rand < 56) return "橙0";
+                if (rand < 70) return "赤0";
+                if (rand < 94) return "橙1";
+                return "赤1";
+            }
+            // 橙0+橙1 または 橙1+橙0
+            else if ((color1 === "橙0" && color2 === "橙1") || (color1 === "橙1" && color2 === "橙0")) {
+                if (rand < 40) return "橙0";
+                if (rand < 50) return "赤0";
+                if (rand < 90) return "橙1";
+                return "赤1";
+            }
+            // 橙0+橙2 または 橙2+橙0
+            else if ((color1 === "橙0" && color2 === "橙2") || (color1 === "橙2" && color2 === "橙0")) {
+                if (rand < 40) return "橙1";
+                if (rand < 50) return "赤1";
+                if (rand < 90) return "橙2";
+                return "赤2";
+            }
+            // 橙1+橙1
+            else if (color1 === "橙1" && color2 === "橙1") {
+                if (rand < 48) return "橙1";
+                if (rand < 60) return "赤1";
+                if (rand < 92) return "橙2";
+                return "赤2";
+            }
+            // 橙1+橙2 または 橙2+橙1
+            else if ((color1 === "橙1" && color2 === "橙2") || (color1 === "橙2" && color2 === "橙1")) {
+                if (rand < 24) return "橙1";
+                if (rand < 30) return "赤1";
+                if (rand < 86) return "橙2";
+                return "赤2";
+            }
+            // 橙2+橙2
+            else if (color1 === "橙2" && color2 === "橙2") {
+                return rand < 80 ? "橙2" : "赤2";
+            }
+            
+            console.error("未定義の橙組み合わせ:", color1, color2);
+            return null;
+        }
+        
+        // 特定の戦略で色を選ぶ関数
+        function chooseColors(inventory, strategy, type) {
+            let colors = [];
+            if (type === "violet") {
+                colors = ["紫0", "紫1", "紫2"];
+            } else if (type === "yellow") {
+                colors = ["黄0", "黄1", "黄2"];
+            } else if (type === "orange") {
+                colors = ["橙0", "橙1", "橙2"];
+            }
+            
+            // 在庫が2つ以上ないと組み合わせられない
+            const totalColors = colors.reduce((sum, color) => sum + inventory[color], 0);
+            if (totalColors < 2) return null;
+            
+            let priority;
+            if (type === "violet") {
+                priority = strategy.violetMixPriority;
+            } else if (type === "yellow") {
+                priority = strategy.yellowMixPriority;
+            } else if (type === "orange") {
+                priority = strategy.orangeMixPriority || "same";
+            }
+            
+            // 戦略に基づいて色を選択
+            if (priority === "same") {
+                // 同じ数字同士を優先（例: 橙2+橙2, 紫2+紫2 など）
+                for (const color of [...colors].reverse()) {
+                    if (inventory[color] >= 2) {
+                        return [color, color];
+                    }
+                }
+                
+                // 同じ色がなければ、在庫のある2色をそのまま使用
+                const available = colors.filter(c => inventory[c] > 0);
+                if (available.length >= 2) {
+                    return [available[0], available[1]];
+                } else if (available.length === 1 && inventory[available[0]] >= 2) {
+                    return [available[0], available[0]];
+                }
+            } 
+            else if (priority === "different") {
+                // 異なる数字同士を優先
+                const available = colors.filter(c => inventory[c] > 0);
+                if (available.length >= 2) {
+                    const combinations = [];
+                    for (let i = 0; i < available.length; i++) {
+                        for (let j = i + 1; j < available.length; j++) {
+                            const color1 = available[i];
+                            const color2 = available[j];
+                            const diff = Math.abs(parseInt(color1.slice(-1)) - parseInt(color2.slice(-1)));
+                            combinations.push({ color1, color2, diff });
+                        }
+                    }
+                    combinations.sort((a, b) => b.diff - a.diff);
+                    if (combinations.length > 0) {
+                        const best = combinations[0];
+                        return [best.color1, best.color2];
+                    }
+                }
+                // 異なる組み合わせがなければ同じ色を使用
+                for (const color of [...colors].reverse()) {
+                    if (inventory[color] >= 2) {
+                        return [color, color];
+                    }
+                }
+            } else {
+                // 優先順位リストがある場合
+                for (const p of priority) {
+                    if (inventory[p] >= 2) {
+                        return [p, p];
+                    }
+                }
+                for (let i = 0; i < priority.length - 1; i++) {
+                    const color1 = priority[i];
+                    if (inventory[color1] > 0) {
+                        for (let j = i + 1; j < priority.length; j++) {
+                            const color2 = priority[j];
+                            if (inventory[color2] > 0) {
+                                return [color1, color2];
+                            }
+                        }
+                    }
+                }
+                const anyAvailable = colors.filter(c => inventory[c] > 0);
+                if (anyAvailable.length >= 2) {
+                    return [anyAvailable[0], anyAvailable[1]];
+                } else if (anyAvailable.length === 1 && inventory[anyAvailable[0]] >= 2) {
+                    return [anyAvailable[0], anyAvailable[0]];
+                }
+            }
+            
+            return null;
+        }
+        
+        // 1回のシミュレーション実行（特定の戦略を使用）
+        function simulateStrategy(strategy, initialBlueCount) {
+            // 初期状態：青0からスタート
+            const inventory = {
+                "紫0": 0, "紫1": 0, "紫2": 0,
+                "黄0": 0, "黄1": 0, "黄2": 0,
+                "橙0": 0, "橙1": 0, "橙2": 0,
+                "赤0": 0, "赤1": 0, "赤2": 0
+            };
+            
+            // 青0を紫に変換
+            for (let i = 0; i < initialBlueCount; i++) {
+                const violet = blueToViolet();
+                inventory[violet]++;
+            }
+            
+            const log = [];
+            log.push(`初期状態: 青0 x ${initialBlueCount}個`);
+            log.push(`変換後: 紫0 x ${inventory["紫0"]}個, 紫1 x ${inventory["紫1"]}個`);
+            
+            // シミュレーションのメインループ
+            const maxSteps = 5000; // 十分大きな値
+            let step = 0;
+            
+            // 各色の履歴を記録
+            const history = {
+                violet: { "紫0": [], "紫1": [], "紫2": [] },
+                yellow: { "黄0": [], "黄1": [], "黄2": [] },
+                orange: { "橙0": [], "橙1": [], "橙2": [] },
+                red: { "赤0": [], "赤1": [], "赤2": [] }
+            };
+            
+            while (step < maxSteps) {
+                step++;
+                
+                // 現在の在庫を履歴に記録
+                for (const color of ["紫0", "紫1", "紫2"]) {
+                    history.violet[color].push(inventory[color]);
+                }
+                for (const color of ["黄0", "黄1", "黄2"]) {
+                    history.yellow[color].push(inventory[color]);
+                }
+                for (const color of ["橙0", "橙1", "橙2"]) {
+                    history.orange[color].push(inventory[color]);
+                }
+                for (const color of ["赤0", "赤1", "赤2"]) {
+                    history.red[color].push(inventory[color]);
+                }
+                
+                let combinedColors = false;
+                
+                // 在庫の合計チェック
+                const violetTotal = inventory["紫0"] + inventory["紫1"] + inventory["紫2"];
+                const yellowTotal = inventory["黄0"] + inventory["黄1"] + inventory["黄2"];
+                const orangeTotal = inventory["橙0"] + inventory["橙1"] + inventory["橙2"];
+                
+                // 紫の在庫があれば混合
+                if (violetTotal >= 2) {
+                    const selectedColors = chooseColors(inventory, strategy, "violet");
+                    if (selectedColors) {
+                        const [color1, color2] = selectedColors;
+                        inventory[color1]--;
+                        inventory[color2]--;
+                        const result = combineViolet(color1, color2);
+                        if (result) {
+                            inventory[result]++;
+                            combinedColors = true;
+                        }
+                    }
+                }
+                
+                // 紫での混合がなければ黄で混合
+                if (!combinedColors && yellowTotal >= 2) {
+                    const selectedColors = chooseColors(inventory, strategy, "yellow");
+                    if (selectedColors) {
+                        const [color1, color2] = selectedColors;
+                        inventory[color1]--;
+                        inventory[color2]--;
+                        const result = combineYellow(color1, color2);
+                        if (result) {
+                            inventory[result]++;
+                            combinedColors = true;
+                        }
+                    }
+                }
+                
+                // 紫・黄で混合がなければ、橙同士で混合（赤生成工程）
+                if (!combinedColors && orangeTotal >= 2) {
+                    const selectedColors = chooseColors(inventory, strategy, "orange");
+                    if (selectedColors) {
+                        const [color1, color2] = selectedColors;
+                        inventory[color1]--;
+                        inventory[color2]--;
+                        const result = combineOrange(color1, color2);
+                        if (result) {
+                            inventory[result]++;
+                            combinedColors = true;
+                        }
+                    }
+                }
+                
+                // どの工程も混合できなければ終了
+                if (!combinedColors) {
+                    break;
+                }
+            }
+            
+            log.push(`シミュレーション終了（${step}ステップ）`);
+            log.push(`最終在庫: 赤2 x ${inventory["赤2"]}個`);
+            
+            return {
+                steps: step,
+                red2Count: inventory["赤2"],
+                success: inventory["赤2"] > 0,
+                log: log.join('\n'),
+                finalInventory: { ...inventory },
+                history: history
+            };
+        }
+        
+        // 各戦略のシミュレーションを並列に実行
+        async function simulateStrategiesParallel(iterations, initialBlueCount) {
+            // 戦略定義
+            const strategies = [
+                {
+                    name: "戦略1: 紫2同士→紫1同士→紫0同士を優先、黄も同様に数字の大きいものを優先",
+                    violetMixPriority: ["紫2", "紫1", "紫0"],
+                    yellowMixPriority: ["黄2", "黄1", "黄0"]
+                },
+                {
+                    name: "戦略2: 紫1同士→紫2同士→紫0同士を優先、黄は黄2同士→黄1同士→黄0同士",
+                    violetMixPriority: ["紫1", "紫2", "紫0"],
+                    yellowMixPriority: ["黄2", "黄1", "黄0"]
+                },
+                {
+                    name: "戦略3: 紫0と紫2の組み合わせ→紫0同士→紫1同士を優先、黄も数字の離れた組み合わせを優先",
+                    violetMixPriority: ["紫0", "紫2", "紫1"],
+                    yellowMixPriority: ["黄0", "黄2", "黄1"]
+                },
+                {
+                    name: "戦略4: 常に同じ数字同士の組み合わせを優先（紫2同士、紫1同士など）",
+                    violetMixPriority: "same",
+                    yellowMixPriority: "same"
+                },
+                {
+                    name: "戦略5: 常に異なる数字同士の組み合わせを優先（紫0+紫2、紫1+紫2など）",
+                    violetMixPriority: "different",
+                    yellowMixPriority: "different"
+                }
+            ];
+            
+            const results = [];
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            const progressContainer = document.getElementById('progress-container');
+            progressContainer.style.display = 'block';
+            
+            let totalCompleted = 0;
+            const totalIterations = strategies.length * iterations;
+            
+            // 各戦略でシミュレーション実行
+            for (const strategy of strategies) {
+                let totalRed2Count = 0;
+                let totalSteps = 0;
+                let maxRed2Count = 0;
+                let successCount = 0;
+                let bestRun = null;
+                
+                console.log(`${strategy.name} のシミュレーション開始...`);
+                
+                const batchSize = 10;
+                const batches = Math.ceil(iterations / batchSize);
+                
+                for (let batch = 0; batch < batches; batch++) {
+                    const start = batch * batchSize;
+                    const end = Math.min((batch + 1) * batchSize, iterations);
+                    
+                    for (let i = start; i < end; i++) {
+                        const result = simulateStrategy(strategy, initialBlueCount);
+                        totalRed2Count += result.red2Count;
+                        totalSteps += result.steps;
+                        if (result.red2Count > 0) {
+                            successCount++;
+                        }
+                        if (result.red2Count > maxRed2Count) {
+                            maxRed2Count = result.red2Count;
+                            bestRun = result;
+                        }
+                        totalCompleted++;
+                    }
+                    
+                    const progress = (totalCompleted / totalIterations) * 100;
+                    progressBar.style.width = `${progress}%`;
+                    progressText.textContent = `${progress.toFixed(1)}% 完了`;
+                    
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                
+                const avgRed2Count = totalRed2Count / iterations;
+                const avgSteps = totalSteps / iterations;
+                
+                results.push({
+                    strategy: strategy.name,
+                    avgRed2Count: avgRed2Count,
+                    maxRed2Count: maxRed2Count,
+                    successRate: (successCount / iterations) * 100,
+                    avgSteps: avgSteps,
+                    bestRun: bestRun
+                });
+                
+                console.log(`${strategy.name} のシミュレーション完了: 平均赤2数 ${avgRed2Count.toFixed(2)}個`);
+            }
+            
+            progressContainer.style.display = 'none';
+            
+            return results;
+        }
+        
+        // 結果表示関数
+        function displayResults(results, initialBlueCount) {
+            const outputDiv = document.getElementById('output');
+            const debugDiv = document.getElementById('debug');
+            
+            let html = `<p>青0の初期数: ${initialBlueCount}個, シミュレーション回数: ${document.getElementById('iterations').value}回</p>`;
+            html += '<table>';
+            html += '<tr><th>戦略</th><th>平均赤2生成数</th><th>最大赤2生成数</th><th>赤2生成成功率(%)</th><th>平均ステップ数</th></tr>';
+            
+            const bestStrategy = results.reduce((prev, current) => 
+                (prev.avgRed2Count > current.avgRed2Count) ? prev : current
+            );
+            
+            results.forEach(result => {
+                const isBest = result.strategy === bestStrategy.strategy;
+                html += `<tr class="${isBest ? 'best-strategy' : ''}">
+                    <td>${result.strategy}</td>
+                    <td>${result.avgRed2Count.toFixed(2)}</td>
+                    <td>${result.maxRed2Count}</td>
+                    <td>${result.successRate.toFixed(2)}%</td>
+                    <td>${result.avgSteps.toFixed(2)}</td>
+                </tr>`;
+            });
+            
+            html += '</table>';
+            html += `<p><strong>最も効率的な戦略: ${bestStrategy.strategy}</strong>（平均赤2生成数: ${bestStrategy.avgRed2Count.toFixed(2)}個）</p>`;
+            
+            outputDiv.innerHTML = html;
+            
+            // 理論的分析の表示
+            calculateTheoretical();
+            
+            // 最良戦略の詳細表示
+            if (bestStrategy && bestStrategy.bestRun) {
+                let debugHtml = `<h4>最大の赤2生成数: ${bestStrategy.maxRed2Count}個</h4>`;
+                debugHtml += `<p>最良実行のログ：</p>`;
+                debugHtml += `<pre>${bestStrategy.bestRun.log}</pre>`;
+                debugHtml += `<h4>最終在庫詳細：</h4>`;
+                
+                const inventory = bestStrategy.bestRun.finalInventory;
+                debugHtml += `<table>
+                    <tr>
+                        <th>紫0</th><th>紫1</th><th>紫2</th>
+                        <th>黄0</th><th>黄1</th><th>黄2</th>
+                        <th>橙0</th><th>橙1</th><th>橙2</th>
+                        <th>赤0</th><th>赤1</th><th>赤2</th>
+                    </tr>
+                    <tr>
+                        <td>${inventory["紫0"]}</td>
+                        <td>${inventory["紫1"]}</td>
+                        <td>${inventory["紫2"]}</td>
+                        <td>${inventory["黄0"]}</td>
+                        <td>${inventory["黄1"]}</td>
+                        <td>${inventory["黄2"]}</td>
+                        <td>${inventory["橙0"]}</td>
+                        <td>${inventory["橙1"]}</td>
+                        <td>${inventory["橙2"]}</td>
+                        <td>${inventory["赤0"]}</td>
+                        <td>${inventory["赤1"]}</td>
+                        <td>${inventory["赤2"]}</td>
+                    </tr>
+                </table>`;
+                
+                debugDiv.innerHTML = debugHtml;
+            }
+        }
+        
+        // 実行ボタンのイベントハンドラ
+        document.getElementById('runBtn').addEventListener('click', async function() {
+            const iterations = parseInt(document.getElementById('iterations').value);
+            const initialBlueCount = parseInt(document.getElementById('initialBlue').value);
+            
+            console.log(`${iterations}回のシミュレーションを開始（青0 x ${initialBlueCount}個）...`);
+            const results = await simulateStrategiesParallel(iterations, initialBlueCount);
+            displayResults(results, initialBlueCount);
+        });
+        
+        // 初期表示の理論的分析
+        calculateTheoretical();
+    </script>
+</body>
+</html>
